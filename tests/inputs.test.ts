@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { getterFrom, layerFixture } from '../src/build.js'
 import {
   InputError,
   parseKeyValueBlock,
@@ -178,5 +179,42 @@ describe('parseTraffic', () => {
 
   it('tolerates surrounding whitespace', () => {
     expect(parseTraffic('  hold=rev-1  ', 'traffic')).toEqual({ mode: 'hold', revision: 'rev-1' })
+  })
+})
+
+describe('layerFixture', () => {
+  // Regression test for the bug that only self-test.yml could surface: a
+  // DEFAULT declared in action.yml is indistinguishable from a caller-supplied
+  // value at getInput level, so the old "non-empty live input wins" rule let
+  // every defaulted input shadow the fixture.
+  const fixture = getterFrom({ kind: 'job', environment: 'prd', name: 'core-api-migrate-prd' })
+  const fixtureKeys = new Set(['kind', 'environment', 'name'])
+
+  it('lets the fixture win over an action.yml default', () => {
+    // `environment: dev` and `kind: service` are the declared defaults.
+    const live = getterFrom({ environment: 'dev', kind: 'service', 'secret-scan': 'auto' })
+    const get = layerFixture(live, fixture, fixtureKeys)
+    expect(get('environment')).toBe('prd')
+    expect(get('kind')).toBe('job')
+  })
+
+  it('still lets a live input through for keys the fixture does not declare', () => {
+    // This is how a self-test job sets `output` and turns the scan off.
+    const live = getterFrom({ output: '/tmp/x.yaml', 'secret-scan': 'off' })
+    const get = layerFixture(live, fixture, fixtureKeys)
+    expect(get('output')).toBe('/tmp/x.yaml')
+    expect(get('secret-scan')).toBe('off')
+  })
+
+  it('returns the fixture value even when it is empty, if declared', () => {
+    // A negative fixture may declare `traffic: hold=` on purpose.
+    const f = getterFrom({ traffic: '' })
+    const get = layerFixture(getterFrom({ traffic: 'latest' }), f, new Set(['traffic']))
+    expect(get('traffic')).toBe('')
+  })
+
+  it('falls through to live for an undeclared key, not to empty', () => {
+    const get = layerFixture(getterFrom({ region: 'us-east1' }), fixture, fixtureKeys)
+    expect(get('region')).toBe('us-east1')
   })
 })

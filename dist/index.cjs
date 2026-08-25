@@ -12156,6 +12156,9 @@ function build(get) {
 function getterFrom(values) {
   return (name) => values[name] ?? "";
 }
+function layerFixture(live, fixture, fixtureKeys) {
+  return (name) => fixtureKeys.has(name) ? fixture(name) : live(name);
+}
 
 // src/emit.ts
 var import_yaml2 = __toESM(require_dist(), 1);
@@ -12302,18 +12305,15 @@ function fixtureGetter(path) {
   for (const [k, v] of Object.entries(doc)) {
     values[k] = typeof v === "string" ? v : Array.isArray(v) ? v.join("\n") : String(v);
   }
-  return getterFrom(values);
+  return { get: getterFrom(values), keys: new Set(Object.keys(values)) };
 }
 function run() {
   const fixture = getInput("fixture").trim();
   let get = (name) => getInput(name);
   if (fixture) {
     info(`Loading inputs from fixture ${fixture} (test scaffolding, not for product use)`);
-    const fromFile = fixtureGetter(fixture);
-    get = (name) => {
-      const live = getInput(name);
-      return live.trim().length > 0 ? live : fromFile(name);
-    };
+    const { get: fromFile, keys } = fixtureGetter(fixture);
+    get = layerFixture(get, fromFile, keys);
   }
   const { spec: spec2, allow, manifest } = build(get);
   const outPath = (0, import_node_path.resolve)(

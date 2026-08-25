@@ -10,7 +10,7 @@ import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs
 import { resolve } from 'node:path'
 import * as core from './core.js'
 import { parse as parseYaml } from 'yaml'
-import { build, getterFrom, type InputGetter } from './build.js'
+import { build, getterFrom, layerFixture, type InputGetter } from './build.js'
 import { emit } from './emit.js'
 import { InputError } from './inputs.js'
 import { redactManifest } from './redact.js'
@@ -27,13 +27,13 @@ import { ValidationError } from './validate.js'
  * file — consumer repos pass inputs via `with:`, which is the deliberate design
  * decision this action was built around.
  */
-function fixtureGetter(path: string): InputGetter {
+function fixtureGetter(path: string): { get: InputGetter; keys: Set<string> } {
   const doc = (parseYaml(readFileSync(path, 'utf8')) ?? {}) as Record<string, unknown>
   const values: Record<string, string> = {}
   for (const [k, v] of Object.entries(doc)) {
     values[k] = typeof v === 'string' ? v : Array.isArray(v) ? v.join('\n') : String(v)
   }
-  return getterFrom(values)
+  return { get: getterFrom(values), keys: new Set(Object.keys(values)) }
 }
 
 export function run(): void {
@@ -41,12 +41,11 @@ export function run(): void {
   let get: InputGetter = (name) => core.getInput(name)
   if (fixture) {
     core.info(`Loading inputs from fixture ${fixture} (test scaffolding, not for product use)`)
-    const fromFile = fixtureGetter(fixture)
-    // Real inputs still win, so a self-test job can override one field.
-    get = (name) => {
-      const live = core.getInput(name)
-      return live.trim().length > 0 ? live : fromFile(name)
-    }
+    const { get: fromFile, keys } = fixtureGetter(fixture)
+    // The fixture wins for what it declares; live inputs fill the rest, which is
+    // how a self-test job still sets `output` and `secret-scan`. See layerFixture
+    // for why "non-empty live input wins" is the wrong rule here.
+    get = layerFixture(get, fromFile, keys)
   }
 
   const { spec, allow, manifest } = build(get)

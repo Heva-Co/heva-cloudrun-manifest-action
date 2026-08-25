@@ -173,3 +173,25 @@ export function build(get: InputGetter): BuildResult {
 export function getterFrom(values: Record<string, string>): InputGetter {
   return (name: string) => values[name] ?? ''
 }
+
+/**
+ * Layers a fixture under the live inputs, for the test-only `fixture` path.
+ *
+ * The fixture wins for every key it DECLARES; live inputs fill in the rest.
+ *
+ * The obvious rule — "a non-empty live input wins" — is wrong, and wrong in a way
+ * that looks fine locally. `core.getInput` cannot distinguish a value the caller
+ * passed from a DEFAULT declared in action.yml, so every input with a non-empty
+ * default (`kind: service`, `environment: dev`, `secret-scan: auto`) silently
+ * shadowed the fixture. Fixtures whose environment happened to be `dev` passed;
+ * the rest failed with a naming-coherence error against a value nobody wrote.
+ *
+ * Keying on what the fixture declares avoids needing to know the defaults at all.
+ */
+export function layerFixture(
+  live: InputGetter,
+  fixture: InputGetter,
+  fixtureKeys: ReadonlySet<string>,
+): InputGetter {
+  return (name: string) => (fixtureKeys.has(name) ? fixture(name) : live(name))
+}
