@@ -1,0 +1,5 @@
+# esbuild's postinstall downloads its platform binary. pnpm 11 blocks all build
+# scripts by default and exits 1 until each one is decided, which CI cannot tolerate.
+# Written by `pnpm approve-builds esbuild`. 0.21.5 is vitest's transitive copy.
+allowBuilds:
+  esbuild: true

@@ -1,0 +1,11 @@
+kind: service
+name: core-api-prd
+region: us-central1
+image: img:sha
+service-account: core-api@example-prd.iam.gserviceaccount.com
+environment: prd
+traffic: latest
+env-plain: |
+  DB_PASS=oops-plaintext
+env-secrets: |
+  DB_PASS=core-api-db-pass-prd

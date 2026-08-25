@@ -1,0 +1,108 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [dev, main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: Typecheck, lint, unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # detect-secrets is installed BEFORE the tests so the entropy-scan cases
+      # actually run here. They self-skip when the binary is missing, which is
+      # right for a laptop and wrong for CI — this is what makes CI the place
+      # those assertions are enforced.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install --quiet --disable-pip-version-check detect-secrets
+
+      - run: pnpm typecheck
+      - run: pnpm lint
+      - name: shellcheck
+        run: shellcheck scripts/*.sh
+
+      - name: Unit tests
+        # HEVA_REQUIRE_DETECT_SECRETS turns a missing binary from a skip into a
+        # failure. Without it, a broken pip install would leave the entropy suite
+        # silently skipped and CI green.
+        env:
+          HEVA_REQUIRE_DETECT_SECRETS: "1"
+        run: pnpm exec vitest run --coverage
+
+  dist:
+    name: dist/ is up to date
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # Same script local-check.sh runs, so a PR cannot fail here on something
+      # that passed locally.
+      - run: ./scripts/check-dist.sh
+
+  secret-scan:
+    name: Secret scan (this repo)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install --quiet --disable-pip-version-check detect-secrets
+      # Same script local-check.sh runs, so the exclusion list cannot drift
+      # between CI and the baseline.
+      - name: Scan tracked files
+        run: ./scripts/scan-repo.sh
+
+  actionlint:
+    name: actionlint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Lint workflows and the published examples
+        run: |
+          bash <(curl -sSf https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
+          ./actionlint -color .github/workflows/*.yml
+          # examples/ is linted too: a renamed input should break CI here rather
+          # than break the deploy of whoever copies the example. actionlint infers
+          # the workflow schema from the path, so they are staged under a
+          # .github/workflows/ tree first.
+          mkdir -p /tmp/lint/.github/workflows
+          cp examples/*.yml /tmp/lint/.github/workflows/
+          ./actionlint -color /tmp/lint/.github/workflows/*.yml

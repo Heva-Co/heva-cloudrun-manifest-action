@@ -1,0 +1,61 @@
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: $SERVICE_NAME
+  annotations:
+    run.googleapis.com/ingress: $INGRESS
+    run.googleapis.com/ingress-status: $INGRESS
+    run.googleapis.com/launch-stage: BETA
+    run.googleapis.com/invoker-iam-disabled: $INVOKER_IAM_DISABLED
+  labels:
+    cloud.googleapis.com/location: $REGION
+spec:
+  template:
+    metadata:
+      annotations:
+        autoscaling.knative.dev/minScale: $MIN_SCALE
+        autoscaling.knative.dev/maxScale: $MAX_SCALE
+        run.googleapis.com/sandbox: gvisor
+        run.googleapis.com/network-interfaces: $NETWORK_INTERFACES
+        run.googleapis.com/vpc-access-egress: $VPC_ACCESS_EGRESS
+        run.googleapis.com/cloudsql-instances: $DB_INSTANCE_CONNECTION_NAME
+    spec:
+      containerConcurrency: $CONTAINER_CONCURRENCY
+      timeoutSeconds: 300
+      serviceAccountName: $SERVICE_ACCOUNT
+      containers:
+        - image: $IMAGE
+          ports:
+            - containerPort: $PORT
+              name: http1
+          resources:
+            limits:
+              cpu: $CPU
+              memory: $MEMORY
+          env:
+            - name: PARAMETER_MANAGER_CONFIG_NAME
+              value: $PARAMETER_MANAGER_CONFIG_NAME
+          startupProbe:
+            httpGet:
+              path: /health/liveness
+              port: $PORT
+            initialDelaySeconds: 0
+            timeoutSeconds: 5
+            periodSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /health/liveness
+              port: $PORT
+            periodSeconds: 30
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health/liveness
+              port: $PORT
+            timeoutSeconds: 5
+            periodSeconds: 15
+            failureThreshold: 3
+  traffic:
+    - latestRevision: true
+      percent: 100

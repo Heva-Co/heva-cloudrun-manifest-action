@@ -1,0 +1,32 @@
+{
+  "name": "heva-cloudrun-manifest-action",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Builds Cloud Run Service and Job manifests from GitHub Actions inputs, validates them, and warns on plaintext secrets.",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "build": "esbuild --bundle --platform=node --target=node24 --format=cjs --legal-comments=none src/main.ts --outfile=dist/index.cjs && esbuild --bundle --platform=node --target=node24 --format=cjs --legal-comments=none src/diff.ts --outfile=dist/diff.cjs",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src tests",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "check": "./scripts/local-check.sh"
+  },
+  "dependencies": {
+    "yaml": "^2.6.1",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.17.0",
+    "@types/node": "^24.0.0",
+    "@vitest/coverage-v8": "^2.1.9",
+    "esbuild": "^0.24.2",
+    "eslint": "^9.17.0",
+    "typescript": "^5.7.2",
+    "typescript-eslint": "^8.19.0",
+    "vitest": "^2.1.8"
+  }
+}

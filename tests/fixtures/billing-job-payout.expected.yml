@@ -1,0 +1,86 @@
+apiVersion: run.googleapis.com/v1
+kind: Job
+metadata:
+  name: billing-payout-prd
+  labels:
+    cloud.googleapis.com/location: "us-central1"
+spec:
+  template:
+    metadata:
+      annotations:
+        run.googleapis.com/network-interfaces: '[{"network":"default","subnetwork":"default"}]'
+        run.googleapis.com/vpc-access-egress: "private-ranges-only"
+        run.googleapis.com/cloudsql-instances: "example-prd:us-central1:main-db"
+        run.googleapis.com/execution-environment: "gen2"
+    spec:
+      parallelism: 1
+      taskCount: 1
+      template:
+        spec:
+          containers:
+            - name: billing-payout-prd-1
+              image: us-central1-docker.pkg.dev/example-prd/apps/billing-api:abc123
+              command:
+                - ./app
+              args:
+                - jobs
+                - payout
+              env:
+                - name: APP_ENV
+                  value: "prd"
+                - name: BANKING_ACCOUNT_ID
+                  value: "cash-account-123"
+                - name: BANKING_AUTH_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: billing-api-banking-auth-token-prd
+                      key: latest
+                - name: BANKING_BASE_URL
+                  value: "https://api.banking.example.com"
+                - name: BANKING_TEST_MODE
+                  value: "false"
+                - name: BASE_URL
+                  value: "https://api.example.com/accounting"
+                - name: DB_DRIVER
+                  value: "postgres"
+                - name: DB_GORM_LOGGER_LEVEL
+                  value: "silent"
+                - name: DB_HOST
+                  value: "10.0.0.3"
+                - name: DB_NAME
+                  value: "billing-db"
+                - name: DB_PASS
+                  valueFrom:
+                    secretKeyRef:
+                      name: billing-api-db-pass-prd
+                      key: latest
+                - name: DB_PORT
+                  value: "5432"
+                - name: DB_USER
+                  value: "billing-db"
+                - name: GOOGLE_CLOUD_PROJECT
+                  value: "example-prd"
+                - name: MAILER_API_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: mailer-api-key
+                      key: latest
+                - name: MAILER_FROM_EMAIL
+                  value: "noreply@example.com"
+                - name: PAYMENTS_SECRET_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: payments-secret-key-prd
+                      key: latest
+                - name: SERVICE_API_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: example-service-api-key-prd
+                      key: latest
+              resources:
+                limits:
+                  cpu: "1"
+                  memory: 512Mi
+          maxRetries: 0
+          timeoutSeconds: "900"
+          serviceAccountName: billing-api@example-prd.iam.gserviceaccount.com

@@ -1,0 +1,98 @@
+# Deploying a Cloud Run Service with a generated manifest.
+#
+# Compare with what this replaces: a versioned infra/service.yaml full of $VAR
+# placeholders, plus an `envsubst` step, plus a second infra/service.prd.yaml
+# that has to be kept in sync by hand.
+name: Deploy to GCP (Prd)
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-prd-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy to ${{ matrix.region }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: Production
+    permissions:
+      contents: read
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        region: [us-central1, us-east1]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # The generator runs BEFORE auth: it needs no credentials and never talks
+      # to GCP, so a manifest problem fails the job before anything is applied.
+      - name: Build the manifest
+        id: manifest
+        uses: Heva-Co/heva-cloudrun-manifest-action@v1
+        with:
+          kind: service
+          name: core-api-prd
+          region: ${{ matrix.region }}
+          image: ${{ matrix.region }}-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ vars.ARTIFACT_REPO }}/core-api:${{ github.sha }}
+          service-account: ${{ vars.SERVICE_ACCOUNT_EMAIL }}
+          environment: prd
+          # Explicit on purpose: there is no default, so a forgotten input cannot
+          # silently take production traffic. Use `hold=<revision>` to deploy
+          # without taking traffic.
+          traffic: latest
+
+          port: "8000"
+          cpu: 2000m
+          memory: 1024Mi
+          concurrency: "30"
+          timeout: "900"
+          ingress: all
+          invoker-iam-disabled: "true"
+          launch-stage: BETA
+          execution-environment: gen2
+          min-instances: "1"
+          max-instances: "100"
+          startup-probe: path=/health/liveness,initial-delay=10,timeout=10,period=10,failure-threshold=240
+
+          vpc-network: default
+          vpc-subnetwork: default
+          vpc-egress: private-ranges-only
+          cloudsql-instances: ${{ vars.DB_INSTANCE_CONNECTION_NAME }}
+
+          env-plain: |
+            GOOGLE_CLOUD_PROJECT=${{ vars.GCP_PROJECT_ID }}
+            APP_ENV=prd
+            PARAMETER_MANAGER_CONFIG_NAME=${{ vars.PARAMETER_MANAGER_CONFIG_NAME }}
+            ALLOWED_ORIGINS=${{ vars.ALLOWED_ORIGINS }}
+            ENABLE_SMS_CHANNEL=true
+
+          # Moving a credential out of plaintext is moving one line from
+          # env-plain to here. There is no second file to keep in sync.
+          env-secrets: |
+            JWT_SECRET_KEY=core-api-jwt-secret-key-prd
+            GUEST_JWT_SECRET_KEY=core-api-guest-jwt-secret-key-prd
+            PAYMENTS_SECRET_KEY=payments-secret-key-prd
+            SMS_AUTH_TOKEN=sms-auth-token-prd
+            MAILER_API_KEY=mailer-api-key
+
+          output: ${{ runner.temp }}/service-${{ matrix.region }}.yaml
+
+      - uses: google-github-actions/auth@v2
+        with:
+          project_id: ${{ vars.GCP_PROJECT_ID }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      # No `cat` of the manifest here: the action already printed a redacted
+      # version. Printing it again unredacted is what puts credentials in the log.
+      - name: Deploy
+        run: gcloud run services replace "${{ steps.manifest.outputs.manifest-path }}" --region ${{ matrix.region }}

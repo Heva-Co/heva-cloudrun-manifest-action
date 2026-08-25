@@ -1,0 +1,11 @@
+node_modules/
+coverage/
+*.log
+.DS_Store
+# dist/ is intentionally NOT ignored: GitHub Actions runs the committed bundle.
+
+# Manual-review renders from scripts/render-local.sh
+output/
+
+# Transient output of scripts/scan-repo.sh
+.scan-current.json

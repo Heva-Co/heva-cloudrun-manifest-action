@@ -1,0 +1,52 @@
+# Moves the floating major tag (v1) to a published release.
+name: Release
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Major tag to move, e.g. v1"
+        required: true
+        default: v1
+
+permissions:
+  contents: write
+
+jobs:
+  retag:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run build
+
+      - name: Refuse to release a stale bundle
+        run: |
+          if ! git diff --quiet -- dist/; then
+            echo "::error::dist/ does not match src/. Rebuild and commit before releasing."
+            exit 1
+          fi
+
+      - name: Move the major tag
+        env:
+          TAG: ${{ inputs.tag || 'v1' }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -f "$TAG"
+          git push -f origin "refs/tags/$TAG"
+          echo "$TAG now points at ${GITHUB_SHA}"

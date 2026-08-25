@@ -1,0 +1,42 @@
+apiVersion: run.googleapis.com/v1
+kind: Job
+metadata:
+  name: core-api-migrate-prd
+  labels:
+    cloud.googleapis.com/location: "us-central1"
+spec:
+  template:
+    metadata:
+      annotations:
+        run.googleapis.com/network-interfaces: '[{"network":"default","subnetwork":"default"}]'
+        run.googleapis.com/vpc-access-egress: "private-ranges-only"
+        run.googleapis.com/cloudsql-instances: "example-prd:us-central1:main-db"
+        run.googleapis.com/execution-environment: "gen2"
+    spec:
+      parallelism: 1
+      taskCount: 1
+      template:
+        spec:
+          containers:
+            - name: core-api-migrate-prd-1
+              image: us-central1-docker.pkg.dev/example-prd/apps/core-api:abc123
+              command:
+                - ./app
+              args:
+                - migrate
+              env:
+                - name: APP_ENV
+                  value: "prd"
+                - name: GOOGLE_CLOUD_PROJECT
+                  value: "example-prd"
+                - name: MIGRATION_LOCK_WAIT
+                  value: "10m"
+                - name: PARAMETER_MANAGER_CONFIG_NAME
+                  value: "core-api-config-prd"
+              resources:
+                limits:
+                  cpu: 1000m
+                  memory: 512Mi
+          maxRetries: 0
+          timeoutSeconds: "1800"
+          serviceAccountName: core-api@example-prd.iam.gserviceaccount.com

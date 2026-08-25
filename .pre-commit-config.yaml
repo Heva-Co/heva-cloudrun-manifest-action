@@ -1,0 +1,28 @@
+# Pre-commit hooks for heva-cloudrun-manifest-action.
+#
+# One-time setup per developer:
+#   brew install pre-commit detect-secrets   # or: pipx install pre-commit
+#   pre-commit install
+#
+# Run against the whole repo (not just staged files):
+#   pre-commit run --all-files
+#
+# When detect-secrets flags a NEW finding that is a false positive, audit it into
+# the baseline instead of deleting the baseline:
+#   detect-secrets scan --baseline .secrets.baseline
+#   detect-secrets audit .secrets.baseline
+repos:
+  - repo: https://github.com/Yelp/detect-secrets
+    rev: v1.5.0
+    hooks:
+      - id: detect-secrets
+        args: ['--baseline', '.secrets.baseline']
+        # Generated and vendored files produce almost only false positives:
+        # pnpm-lock.yaml is a wall of integrity hashes, and dist/ is a bundle of
+        # everything in node_modules.
+        exclude: |
+          (?x)^(
+            pnpm-lock\.yaml|
+            dist/.*|
+            \.secrets\.baseline
+          )$

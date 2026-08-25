@@ -1,0 +1,84 @@
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: inference-api-prd
+  labels:
+    cloud.googleapis.com/location: "us-central1"
+  annotations:
+    run.googleapis.com/ingress: "internal-and-cloud-load-balancing"
+    run.googleapis.com/ingress-status: "internal-and-cloud-load-balancing"
+    run.googleapis.com/launch-stage: "BETA"
+    run.googleapis.com/invoker-iam-disabled: "true"
+    run.googleapis.com/custom-audiences: '["https://api.example.com/ia/*"]'
+spec:
+  template:
+    metadata:
+      annotations:
+        run.googleapis.com/network-interfaces: '[{"network":"default","subnetwork":"default"}]'
+        run.googleapis.com/vpc-access-egress: "private-ranges-only"
+        run.googleapis.com/cloudsql-instances: "example-prd:us-central1:main-db"
+        autoscaling.knative.dev/minScale: "1"
+        autoscaling.knative.dev/maxScale: "20"
+        run.googleapis.com/sandbox: "gvisor"
+    spec:
+      containerConcurrency: 20
+      timeoutSeconds: 900
+      serviceAccountName: inference-api@example-prd.iam.gserviceaccount.com
+      containers:
+        - image: us-central1-docker.pkg.dev/example-prd/apps/inference-api:abc123
+          ports:
+            - name: http1
+              containerPort: 8000
+          resources:
+            limits:
+              cpu: "4"
+              memory: 4Gi
+          env:
+            - name: APP_ENV
+              value: "prd"
+            - name: DB_NAME
+              value: "inference-db"
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: inference-api-db-pass-prd
+                  key: latest
+            - name: DB_USER
+              value: "inference-api"
+            - name: DEFAULT_MODEL
+              value: "claude-opus-5"
+            - name: GOOGLE_CLOUD_PROJECT
+              value: "example-prd"
+            - name: GRAPHDB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: graphdb-password-prd
+                  key: latest
+            - name: LLM_ALT_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: inference-api-llm-alt-api-key-prd
+                  key: latest
+            - name: LLM_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: inference-api-llm-api-key-prd
+                  key: latest
+            - name: RERANK_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: inference-api-rerank-api-key-prd
+                  key: latest
+            - name: SEARCH_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: inference-api-search-api-key-prd
+                  key: latest
+            - name: VECTORDB_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: inference-api-vectordb-api-key-prd
+                  key: latest
+  traffic:
+    - latestRevision: true
+      percent: 100

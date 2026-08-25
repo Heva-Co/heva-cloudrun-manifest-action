@@ -1,0 +1,6 @@
+kind: service
+name: core-api-prd
+region: us-central1
+image: img:sha
+service-account: core-api@example-prd.iam.gserviceaccount.com
+environment: prd

@@ -1,0 +1,341 @@
+name: "Cloud Run Manifest"
+description: "Build, validate and secret-scan a Cloud Run Service or Job manifest from inputs."
+author: "heva"
+
+# Composite rather than node24 because detect-secrets is a Python tool and needs
+# its own setup-python + pip step. A node24 action is a single entrypoint and
+# cannot have steps. The generator itself is TypeScript, bundled into dist/.
+#
+# NOTE: composite steps do NOT inherit env from each other. Anything a later
+# step needs must be re-passed explicitly. self-test.yml has a job that guards
+# this specific failure mode, because getting it wrong shows up as a scan that
+# silently examined the wrong file.
+
+inputs:
+  kind:
+    description: "service | job"
+    required: false
+    default: "service"
+  name:
+    description: "Cloud Run service/job name. Expected shape: <service>-<env>."
+    # Not `required: true`: validate.ts owns this check so the error can
+    # name the field and say why the deploy would fail, rather than the
+    # runner's generic message. It also keeps the `fixture` test input
+    # usable, which supplies these from a file.
+    required: false
+    default: ""
+  region:
+    description: "GCP region, e.g. us-central1"
+    # Not `required: true`: validate.ts owns this check so the error can
+    # name the field and say why the deploy would fail, rather than the
+    # runner's generic message. It also keeps the `fixture` test input
+    # usable, which supplies these from a file.
+    required: false
+    default: ""
+  image:
+    description: "Fully-qualified container image"
+    # Not `required: true`: validate.ts owns this check so the error can
+    # name the field and say why the deploy would fail, rather than the
+    # runner's generic message. It also keeps the `fixture` test input
+    # usable, which supplies these from a file.
+    required: false
+    default: ""
+  service-account:
+    description: "Runtime service account email"
+    # Not `required: true`: validate.ts owns this check so the error can
+    # name the field and say why the deploy would fail, rather than the
+    # runner's generic message. It also keeps the `fixture` test input
+    # usable, which supplies these from a file.
+    required: false
+    default: ""
+  environment:
+    description: "dev | stg | prd. Drives naming checks and the auto scan mode."
+    required: false
+    default: "dev"
+
+  port:
+    description: "Container port (service only). Also the default probe port."
+    required: false
+    default: ""
+  cpu:
+    description: "CPU limit, e.g. 1 or 2000m"
+    required: false
+    default: ""
+  memory:
+    description: "Memory limit, e.g. 512Mi"
+    required: false
+    default: ""
+  command:
+    description: "Entrypoint, one element per line"
+    required: false
+    default: ""
+  args:
+    description: "Arguments, one per line. Order is preserved."
+    required: false
+    default: ""
+
+  env-plain:
+    description: "KEY=VALUE per line. Blank lines and # comments are ignored."
+    required: false
+    default: ""
+  env-secrets:
+    description: >-
+      ENV_VAR=secret-id[:version] per line, version defaults to latest. Replaces
+      the *_SECRET_NAME / *_SECRET / *_SECRET_ID conventions: write the GCP
+      secret id directly.
+    required: false
+    default: ""
+  secret-volumes:
+    description: "name:/mount/path=secret-id[:version] per line"
+    required: false
+    default: ""
+
+  vpc-network:
+    description: "Direct VPC egress network (short name in prd, full path for the shared VPC)"
+    required: false
+    default: ""
+  vpc-subnetwork:
+    description: "Direct VPC egress subnetwork"
+    required: false
+    default: ""
+  vpc-egress:
+    description: "all-traffic | private-ranges-only"
+    required: false
+    default: ""
+  vpc-tags:
+    description: "Network tags, one per line"
+    required: false
+    default: ""
+  cloudsql-instances:
+    description: "Cloud SQL connection names, comma- or newline-separated"
+    required: false
+    default: ""
+  execution-environment:
+    description: "gen1 | gen2"
+    required: false
+    default: ""
+
+  ingress:
+    description: "all | internal | internal-and-cloud-load-balancing (service only)"
+    required: false
+    default: ""
+  invoker-iam-disabled:
+    description: "true | false (service only)"
+    required: false
+    default: ""
+  launch-stage:
+    description: "e.g. BETA (service only)"
+    required: false
+    default: ""
+  sandbox:
+    description: "gvisor (service only)"
+    required: false
+    default: ""
+  cpu-throttling:
+    description: "true | false. Omit to keep the Cloud Run default (service only)."
+    required: false
+    default: ""
+  session-affinity:
+    description: "true | false (service only)"
+    required: false
+    default: ""
+  custom-audiences:
+    description: "One audience per line (service only)"
+    required: false
+    default: ""
+  min-instances:
+    description: "minScale (service only)"
+    required: false
+    default: ""
+  max-instances:
+    description: "maxScale (service only)"
+    required: false
+    default: ""
+  concurrency:
+    description: "containerConcurrency (service only)"
+    required: false
+    default: ""
+  timeout:
+    description: "Request timeout (service) or task timeout (job), in seconds"
+    required: false
+    default: ""
+  startup-probe:
+    description: "path=/health,port=8080,initial-delay=10,timeout=10,period=10,failure-threshold=240"
+    required: false
+    default: ""
+  liveness-probe:
+    description: "Same syntax as startup-probe (service only)"
+    required: false
+    default: ""
+  readiness-probe:
+    description: "Same syntax as startup-probe (service only)"
+    required: false
+    default: ""
+  traffic:
+    description: >-
+      REQUIRED for kind: service. "latest" to serve this revision, or
+      "hold=<revision>" to deploy without taking traffic (that revision keeps
+      100%, the new one is exposed at 0% under tag=candidate).
+
+      No default on purpose: an omitted traffic block means latestRevision 100%
+      to the Cloud Run API, so a forgotten input would silently take production
+      traffic. There is no bare "none" — a no-traffic deploy has to name the
+      revision that keeps serving, which is what `gcloud run deploy --no-traffic`
+      resolves client-side.
+    required: false
+    default: ""
+  parallelism:
+    description: "Job parallelism"
+    required: false
+    default: ""
+  task-count:
+    description: "Job taskCount"
+    required: false
+    default: ""
+  max-retries:
+    description: "Job maxRetries. 0 is meaningful and is preserved."
+    required: false
+    default: ""
+
+  labels:
+    description: "k=v per line"
+    required: false
+    default: ""
+  annotations:
+    description: "k=v per line, service-level (service only)"
+    required: false
+    default: ""
+  template-annotations:
+    description: "k=v per line, revision/task-level. Overrides derived annotations."
+    required: false
+    default: ""
+  overlay:
+    description: "Raw YAML, deep-merged last. Escape hatch for anything unmodelled."
+    required: false
+    default: ""
+
+  secret-scan:
+    description: "auto | warn | error | off. auto = error on prd, warn elsewhere."
+    required: false
+    default: "auto"
+  secret-scan-baseline:
+    description: "Path to a detect-secrets .secrets.baseline"
+    required: false
+    default: ".secrets.baseline"
+  secret-scan-allow:
+    description: "Env var names to exempt, one per line"
+    required: false
+    default: ""
+
+  output:
+    description: "Where to write the manifest"
+    required: false
+    default: ""
+
+  python-version:
+    description: "Python used to run detect-secrets"
+    required: false
+    default: "3.12"
+  install-detect-secrets:
+    description: >-
+      Install detect-secrets. Set false if the runner already has it, or to skip
+      the entropy scan entirely (the name heuristic still runs).
+    required: false
+    default: "true"
+
+  fixture:
+    description: >-
+      TEST SCAFFOLDING ONLY. Load all inputs from a YAML file. Used by
+      self-test.yml to run a matrix without a 400-line workflow. Product repos
+      pass inputs via `with:`.
+    required: false
+    default: ""
+
+outputs:
+  manifest-path:
+    description: "Path to the rendered manifest"
+    value: ${{ steps.generate.outputs.manifest-path }}
+  name:
+    description: "Resolved service/job name"
+    value: ${{ steps.generate.outputs.name }}
+  kind:
+    description: "service or job"
+    value: ${{ steps.generate.outputs.kind }}
+  findings-count:
+    description: "Number of suspected plaintext secrets"
+    value: ${{ steps.generate.outputs.findings-count }}
+  findings:
+    description: "JSON array of {name, detector, source}. Names only, never values."
+    value: ${{ steps.generate.outputs.findings }}
+
+runs:
+  using: composite
+  steps:
+    # Runs first so the generator can shell out to detect-secrets in one step.
+    # Skipped when the scan is off, so the common path stays fast.
+    - name: Set up Python for detect-secrets
+      if: inputs.install-detect-secrets == 'true' && inputs.secret-scan != 'off'
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    - name: Install detect-secrets
+      if: inputs.install-detect-secrets == 'true' && inputs.secret-scan != 'off'
+      shell: bash
+      run: pip install --quiet --disable-pip-version-check detect-secrets
+
+    - name: Generate manifest
+      id: generate
+      shell: bash
+      # Every input is re-declared here: composite steps do not inherit env, and
+      # the generator reads INPUT_* exactly as the runner sets it for a JS action.
+      env:
+        INPUT_KIND: ${{ inputs.kind }}
+        INPUT_NAME: ${{ inputs.name }}
+        INPUT_REGION: ${{ inputs.region }}
+        INPUT_IMAGE: ${{ inputs.image }}
+        INPUT_SERVICE-ACCOUNT: ${{ inputs.service-account }}
+        INPUT_ENVIRONMENT: ${{ inputs.environment }}
+        INPUT_PORT: ${{ inputs.port }}
+        INPUT_CPU: ${{ inputs.cpu }}
+        INPUT_MEMORY: ${{ inputs.memory }}
+        INPUT_COMMAND: ${{ inputs.command }}
+        INPUT_ARGS: ${{ inputs.args }}
+        INPUT_ENV-PLAIN: ${{ inputs.env-plain }}
+        INPUT_ENV-SECRETS: ${{ inputs.env-secrets }}
+        INPUT_SECRET-VOLUMES: ${{ inputs.secret-volumes }}
+        INPUT_VPC-NETWORK: ${{ inputs.vpc-network }}
+        INPUT_VPC-SUBNETWORK: ${{ inputs.vpc-subnetwork }}
+        INPUT_VPC-EGRESS: ${{ inputs.vpc-egress }}
+        INPUT_VPC-TAGS: ${{ inputs.vpc-tags }}
+        INPUT_CLOUDSQL-INSTANCES: ${{ inputs.cloudsql-instances }}
+        INPUT_EXECUTION-ENVIRONMENT: ${{ inputs.execution-environment }}
+        INPUT_INGRESS: ${{ inputs.ingress }}
+        INPUT_INVOKER-IAM-DISABLED: ${{ inputs.invoker-iam-disabled }}
+        INPUT_LAUNCH-STAGE: ${{ inputs.launch-stage }}
+        INPUT_SANDBOX: ${{ inputs.sandbox }}
+        INPUT_CPU-THROTTLING: ${{ inputs.cpu-throttling }}
+        INPUT_SESSION-AFFINITY: ${{ inputs.session-affinity }}
+        INPUT_CUSTOM-AUDIENCES: ${{ inputs.custom-audiences }}
+        INPUT_MIN-INSTANCES: ${{ inputs.min-instances }}
+        INPUT_MAX-INSTANCES: ${{ inputs.max-instances }}
+        INPUT_CONCURRENCY: ${{ inputs.concurrency }}
+        INPUT_TIMEOUT: ${{ inputs.timeout }}
+        INPUT_STARTUP-PROBE: ${{ inputs.startup-probe }}
+        INPUT_LIVENESS-PROBE: ${{ inputs.liveness-probe }}
+        INPUT_READINESS-PROBE: ${{ inputs.readiness-probe }}
+        INPUT_TRAFFIC: ${{ inputs.traffic }}
+        INPUT_PARALLELISM: ${{ inputs.parallelism }}
+        INPUT_TASK-COUNT: ${{ inputs.task-count }}
+        INPUT_MAX-RETRIES: ${{ inputs.max-retries }}
+        INPUT_LABELS: ${{ inputs.labels }}
+        INPUT_ANNOTATIONS: ${{ inputs.annotations }}
+        INPUT_TEMPLATE-ANNOTATIONS: ${{ inputs.template-annotations }}
+        INPUT_OVERLAY: ${{ inputs.overlay }}
+        INPUT_SECRET-SCAN: ${{ inputs.secret-scan }}
+        INPUT_SECRET-SCAN-BASELINE: ${{ inputs.secret-scan-baseline }}
+        INPUT_SECRET-SCAN-ALLOW: ${{ inputs.secret-scan-allow }}
+        INPUT_OUTPUT: ${{ inputs.output }}
+        INPUT_FIXTURE: ${{ inputs.fixture }}
+        GITHUB_ACTION_PATH: ${{ github.action_path }}
+      run: node "${{ github.action_path }}/dist/index.cjs"

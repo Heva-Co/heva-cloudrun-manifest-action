@@ -1,0 +1,7 @@
+kind: service
+name: core-api-prd
+region: us-central1
+image: $IMAGE
+service-account: core-api@example-prd.iam.gserviceaccount.com
+environment: prd
+traffic: latest

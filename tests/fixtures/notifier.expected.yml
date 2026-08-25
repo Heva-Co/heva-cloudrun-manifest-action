@@ -1,0 +1,77 @@
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: notifier-prd
+  labels:
+    cloud.googleapis.com/location: "us-central1"
+  annotations:
+    run.googleapis.com/ingress: "internal-and-cloud-load-balancing"
+    run.googleapis.com/ingress-status: "internal-and-cloud-load-balancing"
+    run.googleapis.com/launch-stage: "BETA"
+    run.googleapis.com/invoker-iam-disabled: "true"
+spec:
+  template:
+    metadata:
+      annotations:
+        run.googleapis.com/network-interfaces: '[{"network":"default","subnetwork":"default"}]'
+        run.googleapis.com/vpc-access-egress: "private-ranges-only"
+        run.googleapis.com/cloudsql-instances: "example-prd:us-central1:main-db"
+        autoscaling.knative.dev/minScale: "1"
+        autoscaling.knative.dev/maxScale: "50"
+        run.googleapis.com/sandbox: "gvisor"
+        run.googleapis.com/cpu-throttling: "false"
+    spec:
+      containerConcurrency: 80
+      timeoutSeconds: 900
+      serviceAccountName: notifier@example-prd.iam.gserviceaccount.com
+      containers:
+        - image: us-central1-docker.pkg.dev/example-prd/apps/notifier:abc123
+          ports:
+            - name: http1
+              containerPort: 8080
+          resources:
+            limits:
+              cpu: "2"
+              memory: 1024Mi
+          env:
+            - name: CORE_API_SOCKET_AUTH_URL
+              value: "https://api.example.com/socket-auth"
+            - name: NOTIFICATIONS_WEBHOOK_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: notifications-webhook-token-prd
+                  key: latest
+            - name: PARAMETER_MANAGER_CONFIG_NAME
+              value: "notifier-config-prd"
+            - name: RELAY_ADMIN_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: notifier-admin-token-prd
+                  key: latest
+            - name: RELAY_APNS_KEY_ID
+              value: "ABC123DEF4"
+            - name: RELAY_APNS_PRIVATE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: notifier-push-key-prd
+                  key: latest
+            - name: RELAY_APNS_PRODUCTION
+              value: "true"
+            - name: RELAY_APNS_TEAM_ID
+              value: "TEAM123456"
+            - name: RELAY_DB_NAME
+              value: "notifier-db"
+            - name: RELAY_DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: notifier-db-pass-prd
+                  key: latest
+            - name: RELAY_DB_USER
+              value: "notifier-db"
+            - name: RELAY_DEFAULT_RATE_LIMIT_PER_MINUTE
+              value: "60"
+            - name: RELAY_PROVIDER_TIMEOUT_MS
+              value: "5000"
+  traffic:
+    - latestRevision: true
+      percent: 100

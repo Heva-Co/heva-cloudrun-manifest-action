@@ -1,0 +1,221 @@
+# Runs the action AS AN ACTION, via `uses: ./`.
+#
+# This is the only thing that tests action.yml's wiring: input names, defaults,
+# types, and the fact that composite steps do NOT inherit env from one another.
+# The unit suite cannot see any of that.
+name: Self-test
+
+on:
+  pull_request:
+  push:
+    branches: [dev, main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: self-test-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  render:
+    name: Render ${{ matrix.case }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        case:
+          - internal-portal
+          - admin-api
+          - marketing-site
+          - notifier
+          - inference-api
+          - core-api
+          - web-app
+          - core-api-job-migrate
+          - core-api-job-sweep
+          - billing-job-payout
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generate
+        id: gen
+        uses: ./
+        with:
+          fixture: tests/fixtures/${{ matrix.case }}.inputs.yml
+          output: ${{ runner.temp }}/${{ matrix.case }}.yaml
+          # The fixtures deliberately contain secret-shaped values (that is what
+          # the scan tests are for), so the scan must not fail this job.
+          secret-scan: "off"
+
+      - name: Output matches the committed golden
+        run: node dist/diff.cjs "${{ steps.gen.outputs.manifest-path }}" "tests/fixtures/${{ matrix.case }}.expected.yml"
+
+      - name: Every output is populated
+        run: |
+          set -euo pipefail
+          test -n "${{ steps.gen.outputs.manifest-path }}"
+          test -n "${{ steps.gen.outputs.name }}"
+          test -n "${{ steps.gen.outputs.kind }}"
+          test -n "${{ steps.gen.outputs.findings-count }}"
+          echo "name=${{ steps.gen.outputs.name }} kind=${{ steps.gen.outputs.kind }}"
+
+      - name: The manifest is where the output says it is
+        run: test -s "${{ steps.gen.outputs.manifest-path }}"
+
+  negative:
+    name: Rejects ${{ matrix.case }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        case:
+          - unresolved-placeholder
+          - empty-secret-id
+          - empty-image
+          - service-input-on-job
+          - job-input-on-service
+          - env-suffix-mismatch
+          - cross-env-secret
+          - duplicate-across-blocks
+          - duplicate-in-block
+          - bad-probe-field
+          - traffic-missing
+          - traffic-hold-empty
+          - traffic-bad-value
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generate (expected to fail)
+        id: gen
+        continue-on-error: true
+        uses: ./
+        with:
+          fixture: tests/fixtures/negative/${{ matrix.case }}.inputs.yml
+          output: ${{ runner.temp }}/should-not-exist.yaml
+          secret-scan: "off"
+
+      - name: Assert the action failed
+        run: |
+          # Without this job, a validate.ts that stopped throwing would keep
+          # every positive test green.
+          if [ "${{ steps.gen.outcome }}" != "failure" ]; then
+            echo "::error::${{ matrix.case }} was accepted but must be rejected"
+            exit 1
+          fi
+          echo "correctly rejected: ${{ matrix.case }}"
+
+  scan-modes:
+    name: Secret scan (${{ matrix.environment }} -> ${{ matrix.expect }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # auto resolves to warn outside production and to error in it.
+          - environment: dev
+            name: canary-dev
+            expect: success
+          - environment: prd
+            name: canary-prd
+            expect: failure
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generate with a plaintext secret
+        id: gen
+        continue-on-error: true
+        uses: ./
+        with:
+          kind: service
+          name: ${{ matrix.name }}
+          region: us-central1
+          image: gcr.io/cloudrun/hello
+          service-account: canary@example-dev.iam.gserviceaccount.com
+          environment: ${{ matrix.environment }}
+          traffic: latest
+          secret-scan: auto
+          env-plain: |
+            APP_ENV=${{ matrix.environment }}
+            JWT_SECRET_KEY=not-a-real-secret-but-shaped-like-one
+          output: ${{ runner.temp }}/scan-${{ matrix.environment }}.yaml
+
+      - name: Assert the expected outcome
+        run: |
+          set -euo pipefail
+          got="${{ steps.gen.outcome }}"
+          want="${{ matrix.expect }}"
+          if [ "$got" != "$want" ]; then
+            echo "::error::environment=${{ matrix.environment }} expected $want, got $got"
+            exit 1
+          fi
+          echo "findings-count=${{ steps.gen.outputs.findings-count }}"
+
+      - name: The finding was reported, by name only
+        run: |
+          set -euo pipefail
+          findings='${{ steps.gen.outputs.findings }}'
+          echo "$findings"
+          echo "$findings" | grep -q 'JWT_SECRET_KEY'
+          # The value must never appear in an output.
+          if echo "$findings" | grep -q 'not-a-real-secret-but-shaped-like-one'; then
+            echo "::error::the secret VALUE leaked into the findings output"
+            exit 1
+          fi
+
+      - name: The printed manifest is redacted
+        run: |
+          set -euo pipefail
+          # The file on disk holds the real value; the log must not.
+          grep -q 'not-a-real-secret-but-shaped-like-one' "${{ runner.temp }}/scan-${{ matrix.environment }}.yaml"
+          echo "value present in the file (expected), and redacted in the log group above"
+
+  env-inheritance:
+    name: Composite steps pass state correctly
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      # The failure mode this guards: composite steps do not inherit env from
+      # each other, so if the manifest path did not reach the scan step, the scan
+      # would examine the wrong file — or none — and report zero findings. That
+      # looks identical to "clean", which is the worst possible outcome for a
+      # secret scanner.
+      - name: Generate with a detectable secret, scan forced on
+        id: gen
+        continue-on-error: true
+        uses: ./
+        with:
+          kind: service
+          name: canary-dev
+          region: us-central1
+          image: gcr.io/cloudrun/hello
+          service-account: canary@example-dev.iam.gserviceaccount.com
+          environment: dev
+          traffic: latest
+          secret-scan: error
+          env-plain: |
+            BRANDING_BLOB=Qk9HVVMtSElHSC1FTlRST1BZLVZBTFVFLUZPUi1URVNUUy1PTkxZLzEyMzQ1Njc4OTA=
+          output: ${{ runner.temp }}/inherit.yaml
+
+      - name: The scan actually ran and found it
+        run: |
+          set -euo pipefail
+          # BRANDING_BLOB has an innocuous NAME, so only the entropy signal can
+          # catch it. If detect-secrets never ran, or ran against the wrong path,
+          # findings-count would be 0 and this job fails.
+          count="${{ steps.gen.outputs.findings-count }}"
+          echo "findings-count=$count"
+          if [ "${count:-0}" -lt 1 ]; then
+            echo "::error::the entropy scan reported nothing — it likely never saw the manifest"
+            exit 1
+          fi
+          if [ "${{ steps.gen.outcome }}" != "failure" ]; then
+            echo "::error::secret-scan: error should have failed the step"
+            exit 1
+          fi

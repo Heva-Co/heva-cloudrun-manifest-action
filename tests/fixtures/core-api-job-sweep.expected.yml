@@ -1,0 +1,57 @@
+apiVersion: run.googleapis.com/v1
+kind: Job
+metadata:
+  name: core-api-cold-lead-sweep-prd
+  labels:
+    cloud.googleapis.com/location: "us-central1"
+spec:
+  template:
+    metadata:
+      annotations:
+        run.googleapis.com/network-interfaces: '[{"network":"default","subnetwork":"default"}]'
+        run.googleapis.com/vpc-access-egress: "private-ranges-only"
+        run.googleapis.com/cloudsql-instances: "example-prd:us-central1:main-db"
+        run.googleapis.com/execution-environment: "gen2"
+    spec:
+      parallelism: 1
+      taskCount: 1
+      template:
+        spec:
+          containers:
+            - name: core-api-cold-lead-sweep-prd-1
+              image: us-central1-docker.pkg.dev/example-prd/apps/core-api:abc123
+              command:
+                - ./app
+              args:
+                - jobs
+                - cold-lead-sweep
+              env:
+                - name: APP_ENV
+                  value: "prd"
+                - name: COLD_LEAD_INACTIVITY_HOURS
+                  value: "48"
+                - name: COLD_LEAD_SWEEP_BATCH_SIZE
+                  value: "500"
+                - name: COLD_LEAD_SWEEP_WORKERS
+                  value: "16"
+                - name: ENCRYPTION_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: core-api-encryption-key-prd
+                      key: latest
+                - name: GOOGLE_CLOUD_PROJECT
+                  value: "example-prd"
+                - name: JWT_SECRET_KEY
+                  valueFrom:
+                    secretKeyRef:
+                      name: core-api-jwt-secret-key-prd
+                      key: latest
+                - name: PARAMETER_MANAGER_CONFIG_NAME
+                  value: "core-api-config-prd"
+              resources:
+                limits:
+                  cpu: 1000m
+                  memory: 512Mi
+          maxRetries: 1
+          timeoutSeconds: "3600"
+          serviceAccountName: core-api@example-prd.iam.gserviceaccount.com

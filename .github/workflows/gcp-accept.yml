@@ -1,0 +1,108 @@
+# Does Cloud Run actually ACCEPT the manifests this action produces?
+#
+# Neither the unit suite nor self-test.yml can answer that: they only prove the
+# YAML is what we intended. This job applies it for real against a throwaway
+# canary in example-dev, then deletes it.
+#
+name: GCP acceptance (canary)
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: "Type 'yes' once the IAM binding described in this file exists"
+        required: true
+        default: "no"
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: gcp-accept
+  cancel-in-progress: false
+
+jobs:
+  accept:
+    name: Apply ${{ matrix.kind }} canary
+    if: inputs.confirm == 'yes'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: Development
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - kind: service
+            name: manifest-canary-dev
+          - kind: job
+            name: manifest-canary-job-dev
+    steps:
+      # actions/checkout v4.2.2
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: Generate the canary manifest
+        id: gen
+        uses: ./
+        with:
+          kind: ${{ matrix.kind }}
+          name: ${{ matrix.name }}
+          region: us-central1
+          # A public, trivially-startable image: this job tests manifest
+          # ACCEPTANCE, not any real service.
+          image: gcr.io/cloudrun/hello
+          service-account: ${{ vars.CANARY_SERVICE_ACCOUNT }}
+          environment: dev
+          traffic: ${{ matrix.kind == 'service' && 'latest' || '' }}
+          port: ${{ matrix.kind == 'service' && '8080' || '' }}
+          cpu: "1"
+          memory: 512Mi
+          min-instances: ${{ matrix.kind == 'service' && '0' || '' }}
+          max-instances: ${{ matrix.kind == 'service' && '1' || '' }}
+          command: ${{ matrix.kind == 'job' && '/bin/true' || '' }}
+          max-retries: ${{ matrix.kind == 'job' && '0' || '' }}
+          timeout: "60"
+          env-plain: |
+            APP_ENV=dev
+          output: ${{ runner.temp }}/canary-${{ matrix.kind }}.yaml
+
+      # google-github-actions/auth v2.1.7
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@71f986410dfbc7added4569d411d040a91dc6935
+        with:
+          project_id: ${{ vars.GCP_PROJECT_ID }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
+
+      # google-github-actions/setup-gcloud v2.1.1
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@6189d56e4096ee891640bb02ac264be376592d6a
+
+      - name: Apply the manifest
+        run: |
+          set -euo pipefail
+          if [ "${{ matrix.kind }}" = "service" ]; then
+            gcloud run services replace "${{ steps.gen.outputs.manifest-path }}" --region us-central1
+          else
+            gcloud run jobs replace "${{ steps.gen.outputs.manifest-path }}" --region us-central1
+          fi
+
+      - name: Read it back
+        run: |
+          set -euo pipefail
+          if [ "${{ matrix.kind }}" = "service" ]; then
+            gcloud run services describe "${{ matrix.name }}" --region us-central1 --format=yaml
+          else
+            gcloud run jobs describe "${{ matrix.name }}" --region us-central1 --format=yaml
+          fi
+
+      # always(), so a failed apply does not leave the canary behind.
+      - name: Clean up
+        if: always()
+        run: |
+          set -uo pipefail
+          if [ "${{ matrix.kind }}" = "service" ]; then
+            gcloud run services delete "${{ matrix.name }}" --region us-central1 --quiet || true
+          else
+            gcloud run jobs delete "${{ matrix.name }}" --region us-central1 --quiet || true
+          fi

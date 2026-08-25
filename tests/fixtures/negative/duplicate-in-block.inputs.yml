@@ -1,0 +1,10 @@
+kind: service
+name: core-api-prd
+region: us-central1
+image: img:sha
+service-account: core-api@example-prd.iam.gserviceaccount.com
+environment: prd
+traffic: latest
+env-plain: |
+  APP_ENV=prd
+  APP_ENV=stg

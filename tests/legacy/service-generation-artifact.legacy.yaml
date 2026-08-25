@@ -1,0 +1,39 @@
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  annotations:
+    run.googleapis.com/ingress: $INGRESS
+    run.googleapis.com/ingress-status: $INGRESS
+    run.googleapis.com/launch-stage: BETA
+    run.googleapis.com/invoker-iam-disabled: $INVOKER_IAM_DISABLED
+  generation: 4
+  labels:
+    cloud.googleapis.com/location: $REGION
+  name: $SERVICE_NAME
+spec:
+  template:
+    metadata:
+      annotations:
+        autoscaling.knative.dev/minScale: $MIN_SCALE
+        autoscaling.knative.dev/maxScale: $MAX_SCALE
+        run.googleapis.com/cpu-throttling: "false"
+        run.googleapis.com/sandbox: gvisor
+    spec:
+      containerConcurrency: $CONTAINER_CONCURRENCY
+      timeoutSeconds: 900
+      serviceAccountName: $SERVICE_ACCOUNT
+      containers:
+        - image: $IMAGE
+          ports:
+            - containerPort: 8080
+              name: http1
+          resources:
+            limits:
+              cpu: $CPU
+              memory: $MEMORY
+          env:
+            - name: PARAMETER_MANAGER_CONFIG_NAME
+              value: $PARAMETER_MANAGER_CONFIG_NAME
+  traffic:
+    - latestRevision: true
+      percent: 100

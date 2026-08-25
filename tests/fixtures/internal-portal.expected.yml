@@ -1,0 +1,62 @@
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: internal-portal-dev
+  labels:
+    cloud.googleapis.com/location: "us-central1"
+  annotations:
+    run.googleapis.com/ingress: "internal-and-cloud-load-balancing"
+    run.googleapis.com/ingress-status: "internal-and-cloud-load-balancing"
+    run.googleapis.com/invoker-iam-disabled: "true"
+spec:
+  template:
+    spec:
+      containerConcurrency: 80
+      serviceAccountName: internal-portal@example-internal.iam.gserviceaccount.com
+      containers:
+        - image: us-central1-docker.pkg.dev/example-internal/apps/internal-portal:abc123
+          ports:
+            - name: http1
+              containerPort: 8080
+          resources:
+            limits:
+              cpu: 1000m
+              memory: 512Mi
+          env:
+            - name: NODE_ENV
+              value: "production"
+            - name: TRACKER_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: tracker-client-id
+                  key: latest
+            - name: TRACKER_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: tracker-client-secret
+                  key: latest
+            - name: TRACKER_CLOUD_ID
+              value: "0a1b2c3d-4e5f-6789-abcd-ef0123456789"
+            - name: TRACKER_GENERAL_WEBHOOK_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: tracker-general-webhook-secret
+                  key: latest
+            - name: TRACKER_GENERAL_WEBHOOK_URL
+              valueFrom:
+                secretKeyRef:
+                  name: tracker-general-webhook-url
+                  key: latest
+            - name: TRACKER_INTAKE_WEBHOOK_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: tracker-intake-webhook-secret
+                  key: latest
+            - name: TRACKER_INTAKE_WEBHOOK_URL
+              valueFrom:
+                secretKeyRef:
+                  name: tracker-intake-webhook-url
+                  key: latest
+  traffic:
+    - latestRevision: true
+      percent: 100

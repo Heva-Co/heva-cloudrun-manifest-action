@@ -1,0 +1,72 @@
+# Deploying and running a Cloud Run Job (a DB migration) before a service deploy.
+name: Migrate
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+jobs:
+  migrate:
+    name: Apply DB migrations
+    runs-on: ubuntu-latest
+    # Must exceed the job's own timeout (1800s) so the runner does not give up
+    # first and leave the migration running unobserved.
+    timeout-minutes: 35
+    environment: Production
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the job manifest
+        id: manifest
+        uses: Heva-Co/heva-cloudrun-manifest-action@v1
+        with:
+          kind: job
+          name: core-api-migrate-prd
+          region: us-central1
+          image: us-central1-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/${{ vars.ARTIFACT_REPO }}/core-api:${{ github.sha }}
+          service-account: ${{ vars.SERVICE_ACCOUNT_EMAIL }}
+          environment: prd
+
+          cpu: 1000m
+          memory: 512Mi
+          command: ./app
+          args: |
+            migrate
+          parallelism: "1"
+          task-count: "1"
+          # Never retry: a retry resumes from wherever the previous attempt
+          # stopped, and a blind retry can collide with a still-running DDL.
+          max-retries: "0"
+          timeout: "1800"
+          execution-environment: gen2
+
+          vpc-network: default
+          vpc-subnetwork: default
+          vpc-egress: private-ranges-only
+          cloudsql-instances: ${{ vars.DB_INSTANCE_CONNECTION_NAME }}
+
+          env-plain: |
+            GOOGLE_CLOUD_PROJECT=${{ vars.GCP_PROJECT_ID }}
+            APP_ENV=prd
+            PARAMETER_MANAGER_CONFIG_NAME=${{ vars.PARAMETER_MANAGER_CONFIG_NAME }}
+            MIGRATION_LOCK_WAIT=10m
+
+          output: ${{ runner.temp }}/migrate-job.yaml
+
+      - uses: google-github-actions/auth@v2
+        with:
+          project_id: ${{ vars.GCP_PROJECT_ID }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Publish the job definition
+        run: gcloud run jobs replace "${{ steps.manifest.outputs.manifest-path }}" --region us-central1
+
+      - name: Run it
+        run: gcloud run jobs execute core-api-migrate-prd --region us-central1 --wait

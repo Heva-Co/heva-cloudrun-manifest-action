@@ -1,0 +1,59 @@
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: web-app-prd
+  labels:
+    cloud.googleapis.com/location: "us-central1"
+  annotations:
+    run.googleapis.com/ingress: "internal-and-cloud-load-balancing"
+    run.googleapis.com/ingress-status: "internal-and-cloud-load-balancing"
+    run.googleapis.com/invoker-iam-disabled: "true"
+spec:
+  template:
+    metadata:
+      annotations:
+        run.googleapis.com/network-interfaces: '[{"network":"default","subnetwork":"default"}]'
+        run.googleapis.com/vpc-access-egress: "private-ranges-only"
+        autoscaling.knative.dev/minScale: "1"
+        autoscaling.knative.dev/maxScale: "10"
+    spec:
+      containerConcurrency: 80
+      timeoutSeconds: 60
+      serviceAccountName: web-app@example-prd.iam.gserviceaccount.com
+      containers:
+        - image: us-central1-docker.pkg.dev/example-prd/apps/web-app:abc123
+          ports:
+            - name: http1
+              containerPort: 3000
+          resources:
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          env:
+            - name: ENVIRONMENT
+              value: "prd"
+            - name: NEXT_PUBLIC_ANALYTICS_KEY
+              value: "analytics-EXAMPLE-not-a-secret"
+            - name: NEXT_PUBLIC_API_URL
+              value: "https://api.example.com"
+            - name: NEXT_PUBLIC_GTM_ID
+              value: "GTM-XXXX"
+            - name: NEXT_PUBLIC_PAYMENTS_PUBLISHABLE_KEY
+              value: "publishable-EXAMPLE-not-a-secret"
+            - name: NODE_ENV
+              value: "production"
+            - name: REDIS_HOST
+              value: "10.0.0.9"
+            - name: REDIS_PORT
+              value: "6379"
+          startupProbe:
+            httpGet:
+              path: /
+              port: 3000
+            initialDelaySeconds: 5
+            timeoutSeconds: 5
+            periodSeconds: 10
+            failureThreshold: 3
+  traffic:
+    - latestRevision: true
+      percent: 100
