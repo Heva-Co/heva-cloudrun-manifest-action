@@ -7,6 +7,8 @@
  * mutate process.env, and golden tests would be integration tests.
  */
 import { parse as parseYaml } from 'yaml'
+import { existsSync, readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import {
   InputError,
   parseKeyValueBlock,
@@ -164,6 +166,16 @@ export function build(get: InputGetter): BuildResult {
   const manifest = deepMerge(render(spec), overlay)
 
   const allow = new Set(parseListBlock(get('secret-scan-allow')))
+  // Auto-read .secret-scan-allow from the workspace root if it exists.
+  // This lets repos declare exemptions in a file rather than repeating
+  // the list in every workflow's `with:` block.
+  const workspace = process.env.GITHUB_WORKSPACE ?? process.cwd()
+  const allowFile = resolve(workspace, '.secret-scan-allow')
+  if (existsSync(allowFile)) {
+    for (const name of parseListBlock(readFileSync(allowFile, 'utf8'))) {
+      allow.add(name)
+    }
+  }
   const supplied = new Set(ALL_INPUT_NAMES.filter((n) => get(n).trim().length > 0))
   validate(spec, manifest, supplied, allow)
   return { spec, manifest, allow }

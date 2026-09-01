@@ -7363,8 +7363,8 @@ __export(main_exports, {
   run: () => run
 });
 module.exports = __toCommonJS(main_exports);
-var import_node_fs2 = require("node:fs");
-var import_node_path = require("node:path");
+var import_node_fs3 = require("node:fs");
+var import_node_path2 = require("node:path");
 
 // src/core.ts
 var import_node_fs = require("node:fs");
@@ -7421,6 +7421,8 @@ var import_yaml3 = __toESM(require_dist(), 1);
 
 // src/build.ts
 var import_yaml = __toESM(require_dist(), 1);
+var import_node_fs2 = require("node:fs");
+var import_node_path = require("node:path");
 
 // src/inputs.ts
 var InputError = class extends Error {
@@ -12149,6 +12151,13 @@ function build(get) {
   const overlay = overlayText.length > 0 ? (0, import_yaml.parse)(overlayText) : void 0;
   const manifest = deepMerge(render(spec2), overlay);
   const allow = new Set(parseListBlock(get("secret-scan-allow")));
+  const workspace = process.env.GITHUB_WORKSPACE ?? process.cwd();
+  const allowFile = (0, import_node_path.resolve)(workspace, ".secret-scan-allow");
+  if ((0, import_node_fs2.existsSync)(allowFile)) {
+    for (const name of parseListBlock((0, import_node_fs2.readFileSync)(allowFile, "utf8"))) {
+      allow.add(name);
+    }
+  }
   const supplied = new Set(ALL_INPUT_NAMES.filter((n) => get(n).trim().length > 0));
   validate(spec2, manifest, supplied, allow);
   return { spec: spec2, manifest, allow };
@@ -12300,7 +12309,7 @@ function summaryMarkdown(opts) {
 
 // src/main.ts
 function fixtureGetter(path) {
-  const doc = (0, import_yaml3.parse)((0, import_node_fs2.readFileSync)(path, "utf8")) ?? {};
+  const doc = (0, import_yaml3.parse)((0, import_node_fs3.readFileSync)(path, "utf8")) ?? {};
   const values = {};
   for (const [k, v] of Object.entries(doc)) {
     values[k] = typeof v === "string" ? v : Array.isArray(v) ? v.join("\n") : String(v);
@@ -12316,11 +12325,11 @@ function run() {
     get = layerFixture(get, fromFile, keys);
   }
   const { spec: spec2, allow, manifest } = build(get);
-  const outPath = (0, import_node_path.resolve)(
+  const outPath = (0, import_node_path2.resolve)(
     get("output").trim() || `${process.env.RUNNER_TEMP ?? "/tmp"}/cloudrun-${spec2.name}.yaml`
   );
   const yamlText = emit(manifest);
-  (0, import_node_fs2.writeFileSync)(outPath, yamlText, "utf8");
+  (0, import_node_fs3.writeFileSync)(outPath, yamlText, "utf8");
   startGroup(`Rendered manifest (values redacted): ${outPath}`);
   info(redactManifest(yamlText));
   endGroup();
@@ -12328,9 +12337,9 @@ function run() {
   let findings = [];
   let note;
   if (resolved !== "off") {
-    const scriptPath = (0, import_node_path.resolve)(process.env.GITHUB_ACTION_PATH ?? process.cwd(), "scripts/scan_manifest.py");
+    const scriptPath = (0, import_node_path2.resolve)(process.env.GITHUB_ACTION_PATH ?? process.cwd(), "scripts/scan_manifest.py");
     const baselineInput = get("secret-scan-baseline").trim();
-    const entropy = (0, import_node_fs2.existsSync)(scriptPath) ? scanEntropy(outPath, scriptPath, baselineInput && (0, import_node_fs2.existsSync)(baselineInput) ? baselineInput : void 0, allow) : { available: false, findings: [], note: `scan_manifest.py not found at ${scriptPath}` };
+    const entropy = (0, import_node_fs3.existsSync)(scriptPath) ? scanEntropy(outPath, scriptPath, baselineInput && (0, import_node_fs3.existsSync)(baselineInput) ? baselineInput : void 0, allow) : { available: false, findings: [], note: `scan_manifest.py not found at ${scriptPath}` };
     note = entropy.note;
     findings = mergeFindings(scanNames(spec2, allow), entropy.findings);
   }
@@ -12350,7 +12359,7 @@ function run() {
     note
   });
   if (process.env.GITHUB_STEP_SUMMARY) {
-    (0, import_node_fs2.appendFileSync)(process.env.GITHUB_STEP_SUMMARY, `${summary}
+    (0, import_node_fs3.appendFileSync)(process.env.GITHUB_STEP_SUMMARY, `${summary}
 `, "utf8");
   } else {
     info(summary);
