@@ -84,6 +84,26 @@ describe('(2) load-bearing fields', () => {
   })
 })
 
+describe('no environment set', () => {
+  it('accepts a service with no environment and no env suffix in name', () => {
+    const spec = serviceSpec.parse({
+      ...base,
+      name: 'heva-intranet',
+      environment: undefined,
+    })
+    expect(() => validate(spec, render(spec))).not.toThrow()
+  })
+
+  it('accepts an empty-string environment (raw action input default)', () => {
+    const spec = serviceSpec.parse({
+      ...base,
+      name: 'heva-intranet',
+      environment: '',
+    })
+    expect(() => validate(spec, render(spec))).not.toThrow()
+  })
+})
+
 describe('(3) environment coherence', () => {
   it('rejects a name whose suffix disagrees with the environment', () => {
     expect(() => checkService({ name: 'core-api-stg' })).toThrow(

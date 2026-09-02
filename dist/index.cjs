@@ -11814,7 +11814,7 @@ var common = {
   region: external_exports.string(),
   image: external_exports.string(),
   serviceAccount: external_exports.string(),
-  environment: external_exports.enum(ENVIRONMENTS),
+  environment: external_exports.enum(ENVIRONMENTS).or(external_exports.literal("")).optional(),
   cpu: external_exports.string().min(1).optional(),
   memory: external_exports.string().min(1).optional(),
   command: external_exports.array(external_exports.string()).default([]),
