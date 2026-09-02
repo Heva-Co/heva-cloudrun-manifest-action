@@ -49,9 +49,9 @@ inputs:
     required: false
     default: ""
   environment:
-    description: "dev | stg | prd. Drives naming checks and the auto scan mode."
+    description: "dev | stg | prd. Drives naming checks and the auto scan mode. When omitted, name suffix validation is skipped."
     required: false
-    default: "dev"
+    default: ""
 
   port:
     description: "Container port (service only). Also the default probe port."
