@@ -50,7 +50,7 @@ const common = {
   region: z.string(),
   image: z.string(),
   serviceAccount: z.string(),
-  environment: z.enum(ENVIRONMENTS),
+  environment: z.enum(ENVIRONMENTS).or(z.literal('')).optional(),
 
   cpu: z.string().min(1).optional(),
   memory: z.string().min(1).optional(),
