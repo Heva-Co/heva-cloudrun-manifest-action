@@ -87,7 +87,7 @@ export function buildSpec(get: InputGetter): Spec {
     region: get('region'),
     image: get('image'),
     serviceAccount: get('service-account'),
-    environment: (str('environment') ?? 'dev').toLowerCase(),
+    environment: str('environment')?.toLowerCase() || undefined,
     cpu: str('cpu'),
     memory: str('memory'),
     command: parseListBlock(str('command')),

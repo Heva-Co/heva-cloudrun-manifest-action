@@ -12083,7 +12083,7 @@ function buildSpec(get) {
     region: get("region"),
     image: get("image"),
     serviceAccount: get("service-account"),
-    environment: (str("environment") ?? "dev").toLowerCase(),
+    environment: str("environment")?.toLowerCase() || void 0,
     cpu: str("cpu"),
     memory: str("memory"),
     command: parseListBlock(str("command")),
