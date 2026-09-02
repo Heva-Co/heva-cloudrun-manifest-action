@@ -105,12 +105,15 @@ export function validate(
   }
 
   // (3) Environment / naming coherence. Catches pointing stg at a prd secret.
-  const suffix = `-${spec.environment}`
-  if (!spec.name.endsWith(suffix)) {
-    problems.push(
-      `name "${spec.name}" does not end in "${suffix}" for environment "${spec.environment}". ` +
-        `Cloud Run workloads are expected to be named <service>-<env>. Rename, or correct the environment input.`,
-    )
+  // Skipped entirely when environment is not set.
+  if (spec.environment) {
+    const suffix = `-${spec.environment}`
+    if (!spec.name.endsWith(suffix)) {
+      problems.push(
+        `name "${spec.name}" does not end in "${suffix}" for environment "${spec.environment}". ` +
+          `Cloud Run workloads are expected to be named <service>-<env>. Rename, or correct the environment input.`,
+      )
+    }
   }
   const otherEnvs = (['dev', 'stg', 'prd'] as const).filter((e) => e !== spec.environment)
   for (const s of spec.envSecrets) {

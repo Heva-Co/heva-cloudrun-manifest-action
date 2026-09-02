@@ -11949,11 +11949,13 @@ function validate(spec2, manifest, supplied = /* @__PURE__ */ new Set(), allowCr
       problems.push(`env-secrets: ${s.key} would render an empty secretKeyRef.name`);
     }
   }
-  const suffix = `-${spec2.environment}`;
-  if (!spec2.name.endsWith(suffix)) {
-    problems.push(
-      `name "${spec2.name}" does not end in "${suffix}" for environment "${spec2.environment}". Cloud Run workloads are expected to be named <service>-<env>. Rename, or correct the environment input.`
-    );
+  if (spec2.environment) {
+    const suffix = `-${spec2.environment}`;
+    if (!spec2.name.endsWith(suffix)) {
+      problems.push(
+        `name "${spec2.name}" does not end in "${suffix}" for environment "${spec2.environment}". Cloud Run workloads are expected to be named <service>-<env>. Rename, or correct the environment input.`
+      );
+    }
   }
   const otherEnvs = ["dev", "stg", "prd"].filter((e) => e !== spec2.environment);
   for (const s of spec2.envSecrets) {
